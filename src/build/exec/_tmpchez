@@ -1,0 +1,4 @@
+#!/bin/sh
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:`dirname /home/jankun/Projects/Idris/Ships/src/build/exec/_tmpchez_app/_tmpchez.ss`
+/home/jankun/Projects/Idris/Ships/src/build/exec/_tmpchez_app/_tmpchez.ss "$@"

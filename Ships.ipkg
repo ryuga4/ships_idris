@@ -1,0 +1,17 @@
+package Ships
+
+version    = 0.0.1
+brief      = "Initial project template from idringen"
+
+author     = ryuga4 <ryuga4@o2.pl>
+license    = BSD3
+homepage   = https://github.com/githubuser/Ships
+sourceloc  = git@github.com:githubuser/Ships.git
+bugtracker = https://github.com/githubuser/Ships/issues
+
+sourcedir  = src
+modules    = Test
+tests      = Test.spec
+executable = Ships
+main       = Main
+pkgs       = contrib
