@@ -17,6 +17,22 @@ data CellState = Unknown
                | HitAndSink
                | NoShip
 
+Eq CellState where
+  Unknown == Unknown = True
+  ShipFound == ShipFound = True
+  HitAndSink == HitAndSink = True
+  NoShip == NoShip = True
+  _ == _ = False
+
+DecEq CellState where
+  decEq x y = case x == y of
+                   True => Yes primitiveEq
+                   False => No primitiveNotEq
+ where primitiveEq : x = y
+       primitiveEq = really_believe_me (Refl {x})
+       primitiveNotEq : x = y -> Void
+       primitiveNotEq prf = believe_me {b = Void} ()
+
 
 record Board (n : Nat) (m : Nat) where
   constructor MkBoard
@@ -50,6 +66,12 @@ data Ship : (n : Nat) -> (m : Nat) -> Type where
                -> {auto prfL : GT l Z}
                -> {auto prf : LTE (cast x + l) n}
                -> Ship n m
+
+
+
+data All : (List a) -> (a -> Type) -> Type where
+  AllNil : All [] pred
+  AllCons : p x -> All xs p -> All (x::xs) p
 
 
 length : Ship n m -> Nat
@@ -103,15 +125,13 @@ shipCells : (s : Ship n m) -> List (Fin n, Fin m)
 shipCells {m = S m} (VerticalShip x y (S l) {prf}) = map (\i => (x,i)) [y .. natToFinLTE (cast y + l) {prf = rewrite (plusSuccRightSucc (cast y) l) in prf}]
 shipCells {n = S n} (HorizontalShip x y (S l) {prf}) = map (\i => (i,y)) [x .. natToFinLTE (cast x + l) {prf = rewrite (plusSuccRightSucc (cast x) l) in prf}]
 
-shipCellValues : (cells : Vect l (Fin a, Fin b))
+shipCellValues : (Ship n m)
               -> (board : Board n m)
-              -> {prfX : LTE a n}
-              -> {prfY : LTE b m}
-              -> Vect l CellState
-shipCellValues {prfX} {prfY} cells board =
+              -> List CellState
+shipCellValues ship board =
   map (\(x,y) => getCellState board
-                              (weakenFin {prf = prfX} x)
-                              (weakenFin {prf = prfY} y)) cells
+                              x
+                              y) (shipCells ship)
 
 
 
@@ -229,14 +249,14 @@ lteMinus (S k) (S j) {prf = LTESucc prf} with (lteMinus k j)
 
 
 
-verticalShipsOfLength : (board : Board n m)
+verticalShipsOfLength : (n,m : Nat)
+             -> {auto prfN : GT n Z}
+             -> {auto prfM : GT m Z}
              -> (length : Nat)
              -> {auto notZeroLengthPrf : GT length Z}
              -> {auto lteLengthM : LTE length m}
              -> List (Ship n m)
-verticalShipsOfLength {n = Z} (MkBoard board notZeroN notZeroM) _ impossible
-verticalShipsOfLength {m = Z} (MkBoard board notZeroN notZeroM) _ impossible
-verticalShipsOfLength {lteLengthM} {n = S n} {m = S m} board length = do
+verticalShipsOfLength {lteLengthM} (S n) (S m) length = do
     a <- toList (range {len = S n})
     b <- toList (range {len = (S m) - length})
     pure $ shipAtPosition a b
@@ -249,13 +269,98 @@ verticalShipsOfLength {lteLengthM} {n = S n} {m = S m} board length = do
                                                          {prf = rewrite sym pf in
                                                                 lteSwapMinus {prf = lteLengthM} (finToNat y) length (S m) (lteSuccLeft (finToLTE y))})
 
+horizontalShipsOfLength : (n,m : Nat)
+                       -> {auto prfN : GT n Z}
+                       -> {auto prfM : GT m z}
+                       -> (length : Nat)
+                       -> {auto notZeroLengthPrf : GT length Z}
+                       -> {auto lteLengthN : LTE length n}
+                       -> List (Ship n m)
+horizontalShipsOfLength {lteLengthN} (S n) (S m) length = do
+  a <- toList (range {len = (S n) - length})
+  b <- toList (range {len = S m})
+  pure $ shipAtPosition a b
+ where
+ shipAtPosition : Fin (S n - length)
+               -> Fin (S m)
+               -> Ship (S n) (S m)
+ shipAtPosition x y with (weakenFinFull x {m = S n} {prf = lteMinus (S n) length})
+   shipAtPosition x y | (weakenX ** pf) = (HorizontalShip weakenX y length
+                                                          {prf = rewrite sym pf in
+                                                                 lteSwapMinus {prf = lteLengthN} (finToNat x) length (S n) (lteSuccLeft (finToLTE x))})
 
 
 
-
-allPossibleShips : (board : Board n m)
-                -> (shipLengths : List (x : Nat ** (GT x Z , LTE x m)))
+allPossibleShips : (n,m : Nat)
+                -> {auto prfN : GT n Z}
+                -> {auto prfM : GT m Z}
+                -> (shipLengths : List (x : Nat ** (GT x Z , Maybe (LTE x n), Maybe (LTE x m))))
                 -> List (Ship n m)
-allPossibleShips board shipLengths = join $ map (\(i ** (notZeroLengthPrf, lteLengthM)) => verticalShipsOfLength board i) shipLengths
+allPossibleShips n m shipLengths = join $ map (\(i ** props) => 
+                                                     case props of
+                                                       (a, Just b, Just c) => horizontalShipsOfLength n m i ++ verticalShipsOfLength n m i
+                                                       (a, Just b, Nothing) => horizontalShipsOfLength n m i
+                                                       (a, Nothing, Just c) => verticalShipsOfLength n m i
+                                                       _ => []
+                                                       ) shipLengths
 
 
+
+
+mkShipLength : (n,m : Nat)
+              -> {auto prfN : GT n Z}
+              -> {auto prfM : GT m Z}
+              -> Nat
+              -> Maybe (x : Nat ** (GT x Z, Maybe (LTE x n), Maybe (LTE x m)))
+mkShipLength (S n) (S m) x with (isLTE 1 x, isLTE x (S n), isLTE x (S m))
+  mkShipLength (S n) (S m) x | (Yes a, Yes b, Yes c) = pure (x ** (a,Just b, Just c))
+  mkShipLength (S n) (S m) x | (Yes a, No _, Yes c) = pure (x ** (a,Nothing, Just c))
+  mkShipLength (S n) (S m) x | (Yes a, Yes b, No _) = pure (x ** (a,Just b, Nothing))
+  mkShipLength _ _ _ | _ = Nothing
+
+
+mkShipsLengths : (n,m : Nat)
+              -> {auto prfN : GT n Z}
+              -> {auto prfM : GT m Z}
+              -> List Nat
+              -> Maybe (List (x : Nat ** (GT x Z, Maybe (LTE x n), Maybe (LTE x m))))
+mkShipsLengths {prfN} Z _ _ impossible
+mkShipsLengths {prfM} _ Z _ impossible
+mkShipsLengths {prfN} {prfM} (S n) (S m) xs = helper (map (mkShipLength (S n) (S m)) xs)
+  where helper : List (Maybe a) -> Maybe (List a)
+        helper [] = pure []
+        helper (Nothing::_) = Nothing
+        helper (Just x :: xs) = (x ::) <$> helper xs
+
+
+
+
+
+
+
+
+
+validShip : (s : Ship n m)
+         -> (b : Board n m)
+         -> Dec (All (shipCellValues s b) (\x => Either (x=Unknown) (x=ShipFound)))
+validShip s b = helper (shipCellValues s b)
+  where
+  helper : (l : List CellState) -> Dec (All l (\x => Either (x=Unknown) (x=ShipFound)))
+  helper [] = Yes AllNil
+  helper (x :: xs) with (helper xs)
+    helper (x :: xs) | (Yes prf) with (decEq x Unknown)
+      helper (x :: xs) | (Yes prf) | (Yes y) = Yes (AllCons (Left y) prf)
+      helper (x :: xs) | (Yes prf) | (No contra) with (decEq x ShipFound)
+        helper (x :: xs) | (Yes prf) | (No contra) | (Yes y) = Yes (AllCons (Right y) prf)
+        helper (x :: xs) | (Yes prf) | (No contraL) | (No contraR) = No (\p => case p of AllCons a as => case a of
+                                                                                                       Left u_pat => contraL u_pat
+                                                                                                       Right f_pat => contraR f_pat)
+    helper (x :: xs) | (No contra) = No (\p => case p of AllCons a as => contra as)
+
+
+validShips : List (Ship n m)
+          -> (b : Board n m)
+          -> List (s : Ship n m ** All (shipCellValues s b) (\x => Either (x=Unknown) (x=ShipFound)))
+validShips xs b = mapMaybe (\s => case validShip s b of
+                                          Yes prf => Just (s ** prf)
+                                          No contra => Nothing) xs
